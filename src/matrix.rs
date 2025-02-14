@@ -3,14 +3,14 @@ use core::iter;
 use core::ops;
 
 #[derive(Debug)]
-pub struct Matrix {
+pub(crate) struct Matrix {
     headers: Vec<Header>,
     nodes: Vec<Node>,
 }
 
 macro_rules! impl_walk {
     ($name:ident, $field:ident) => {
-        fn $name(&self, start: Index) -> impl Iterator<Item = Index> + '_ {
+        pub(crate) fn $name(&self, start: Index) -> impl Iterator<Item = Index> + '_ {
             self.walk(|node| node.$field.get(), start)
         }
     };
@@ -18,19 +18,19 @@ macro_rules! impl_walk {
 
 macro_rules! impl_attach {
     ($attach:ident, $reattach:ident, $detach:ident, $a:ident, $b:ident) => {
-        fn $attach(&self, a: Index, b: Index) {
+        pub(crate) fn $attach(&self, a: Index, b: Index) {
             self[a].$b.set(b);
             self[b].$a.set(a);
         }
 
-        fn $reattach(&self, i: Index) {
+        pub(crate) fn $reattach(&self, i: Index) {
             let a = self[i].$a.get();
             let b = self[i].$b.get();
             self[a].$b.set(i);
             self[b].$a.set(i);
         }
 
-        fn $detach(&self, i: Index) {
+        pub(crate) fn $detach(&self, i: Index) {
             let a = self[i].$a.get();
             let b = self[i].$b.get();
             self[a].$b.set(b);
@@ -40,7 +40,7 @@ macro_rules! impl_attach {
 }
 
 impl Matrix {
-    fn new(column_count: u16) -> Self {
+    pub(crate) fn new(column_count: u16) -> Self {
         let header_count = 1 + column_count;
         let mut headers = Vec::with_capacity(header_count as usize);
 
@@ -79,22 +79,26 @@ impl Matrix {
         }
     }
 
-    fn size(&self, col: Col) -> u32 {
+    pub(crate) fn size(&self, col: Col) -> u32 {
         self.headers[col.0 as usize].size.get()
     }
 
-    fn update_size(&self, col: Col, delta: i32) {
+    pub(crate) fn update_size(&self, col: Col, delta: i32) {
         let size = &self.headers[col.0 as usize].size;
         size.set(size.get().wrapping_add_signed(delta))
     }
 
-    fn push(&mut self, node: Node) -> Index {
+    pub(crate) fn column(&self, col: u16) -> Col {
+        Col(col)
+    }
+
+    pub(crate) fn push(&mut self, node: Node) -> Index {
         let index = self.nodes.len();
         self.nodes.push(node);
         Index((self.headers.len() + index) as u32)
     }
 
-    fn map(&self) -> ColMap<Index> {
+    pub(crate) fn map(&self) -> ColMap<Index> {
         ColMap(
             (0..self.headers.len())
                 .map(|i| Col(i as u16).into())
@@ -102,7 +106,7 @@ impl Matrix {
         )
     }
 
-    fn index_to_column(&self, index: Index) -> Col {
+    pub(crate) fn index_to_column(&self, index: Index) -> Col {
         self[index].col
     }
 
@@ -147,7 +151,7 @@ impl ops::Index<Index> for Matrix {
 pub struct Index(u32);
 
 impl Index {
-    const GLOBAL: Self = Self(0);
+    pub(crate) const GLOBAL: Self = Self(0);
 
     fn header(col: u16) -> Self {
         Self(1 + col as u32)
@@ -156,15 +160,25 @@ impl Index {
     fn dangling() -> Self {
         Self(u32::MAX)
     }
+
+    pub(crate) fn prev(&self) -> Self {
+        Self(self.0 - 1)
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct Row(u32);
+pub(crate) struct Row(u32);
 
-struct ColMap<T>(Vec<T>);
+impl Row {
+    pub(crate) fn new(row: u32) -> Self {
+        Self(row)
+    }
+}
+
+pub(crate) struct ColMap<T>(Vec<T>);
 
 impl<T> ColMap<T> {
-    fn iter(&self) -> impl Iterator<Item = (Col, &T)> + '_ {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (Col, &T)> + '_ {
         self.0
             .iter()
             .enumerate()
@@ -186,7 +200,7 @@ impl<T> ops::IndexMut<Col> for ColMap<T> {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct Col(u16);
+pub(crate) struct Col(u16);
 
 impl From<Col> for Index {
     fn from(col: Col) -> Self {
@@ -201,7 +215,7 @@ struct Header {
 }
 
 #[derive(Clone, Debug)]
-struct Node {
+pub(crate) struct Node {
     row: Row,
     col: Col,
 
@@ -223,7 +237,7 @@ impl Node {
         }
     }
 
-    fn dangling(row: Row, col: Col) -> Self {
+    pub(crate) fn dangling(row: Row, col: Col) -> Self {
         Self {
             row,
             col,
