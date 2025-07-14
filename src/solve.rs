@@ -1,14 +1,12 @@
 use core::ops::ControlFlow;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
-use std::collections::HashSet;
 
 use crate::matrix;
 use crate::matrix::Matrix;
 
 pub struct Solver {
-    dense_to_sparse: Vec<u16>,
-    pool: Matrix,
+    matrix: Matrix,
 }
 
 pub trait Row {
@@ -28,7 +26,7 @@ impl Solver {
             .iter()
             .copied()
             .enumerate()
-            .map(|(dense, sparse)| (sparse, dense as u16))
+            .map(|(dense, sparse)| (sparse, dense as u16 + 1))
             .collect::<HashMap<_, _>>();
 
         let mut matrix = Matrix::new(dense_to_sparse.len() as u16);
@@ -49,22 +47,24 @@ impl Solver {
                 matrix.update_size(col, 1);
 
                 let index = matrix.push(matrix::Node::dangling(row, col));
-                let left = index.prev();
                 let up = prev[col];
 
                 matrix.attach_vertical(up, index);
-                matrix.attach_horizontal(left, index);
+
+                if head.is_some() {
+                    let left = index.prev();
+                    matrix.attach_horizontal(left, index);
+                }
+
                 prev[col] = index;
 
                 head.get_or_insert(index);
                 tail = Some(index);
             }
 
-            let (Some(head), Some(tail)) = (head, tail) else {
-                continue;
-            };
-
-            matrix.attach_horizontal(tail, head);
+            if let (Some(head), Some(tail)) = (head, tail) {
+                matrix.attach_horizontal(tail, head);
+            }
         }
 
         // Complete column cycles
@@ -72,18 +72,34 @@ impl Solver {
             matrix.attach_vertical(*index, col.into());
         }
 
-        Self {
-            dense_to_sparse,
-            pool: matrix,
-        }
+        Self { matrix }
     }
 
-    pub(crate) fn solve<T, F: FnMut(&[matrix::Index]) -> ControlFlow<T, ()>>(
+    pub fn solve_count(&self) -> usize {
+        let mut solution = Vec::new();
+        let mut count = 0;
+        self.solve_inner(&mut solution, &mut |_| {
+            count += 1;
+            ControlFlow::<(), ()>::Continue(())
+        });
+        count
+    }
+
+    pub fn solve<T, F: FnMut(&mut [usize]) -> ControlFlow<T, ()>>(
         &self,
         inspect: &mut F,
     ) -> Option<T> {
         let mut solution = Vec::new();
-        self.solve_inner(&mut solution, inspect)
+        let mut buffer = Vec::new();
+        self.solve_inner(&mut solution, &mut |solution| {
+            buffer.clear();
+            buffer.extend(
+                solution
+                    .iter()
+                    .map(|index| usize::from(self.matrix[*index].row)),
+            );
+            inspect(&mut buffer)
+        })
     }
 
     fn solve_inner<T, F: FnMut(&[matrix::Index]) -> ControlFlow<T, ()>>(
@@ -92,10 +108,10 @@ impl Solver {
         inspect: &mut F,
     ) -> Option<T> {
         let Some(col) = self
-            .pool
+            .matrix
             .walk_right(matrix::Index::GLOBAL)
-            .map(|index| self.pool.index_to_column(index))
-            .min_by_key(|col| self.pool.size(*col))
+            .map(|index| self.matrix.index_to_column(index))
+            .min_by_key(|col| self.matrix.size(*col))
         else {
             match inspect(solution) {
                 ControlFlow::Continue(()) => return None,
@@ -105,13 +121,13 @@ impl Solver {
 
         self.cover(col);
 
-        for i in self.pool.walk_down(col.into()) {
+        for i in self.matrix.walk_down(col.into()) {
             solution.push(i);
 
             for j in self
-                .pool
+                .matrix
                 .walk_right(i)
-                .map(|j| self.pool.index_to_column(j))
+                .map(|j| self.matrix.index_to_column(j))
             {
                 self.cover(j);
             }
@@ -120,7 +136,11 @@ impl Solver {
                 return Some(out);
             }
 
-            for j in self.pool.walk_left(i).map(|j| self.pool.index_to_column(j)) {
+            for j in self
+                .matrix
+                .walk_left(i)
+                .map(|j| self.matrix.index_to_column(j))
+            {
                 self.uncover(j);
             }
 
@@ -134,14 +154,14 @@ impl Solver {
     fn cover(&self, col: matrix::Col) {
         let col = col.into();
 
-        self.pool.detach_horizontal(col);
+        self.matrix.detach_horizontal(col);
 
-        for i in self.pool.walk_down(col) {
-            for j in self.pool.walk_right(i) {
-                self.pool.detach_vertical(j);
+        for i in self.matrix.walk_down(col) {
+            for j in self.matrix.walk_right(i) {
+                self.matrix.detach_vertical(j);
 
-                let col = self.pool.index_to_column(j);
-                self.pool.update_size(col, -1);
+                let col = self.matrix.index_to_column(j);
+                self.matrix.update_size(col, -1);
             }
         }
     }
@@ -149,15 +169,44 @@ impl Solver {
     fn uncover(&self, col: matrix::Col) {
         let col = col.into();
 
-        for i in self.pool.walk_up(col) {
-            for j in self.pool.walk_left(i) {
-                self.pool.reattach_vertical(j);
+        for i in self.matrix.walk_up(col) {
+            for j in self.matrix.walk_left(i) {
+                self.matrix.reattach_vertical(j);
 
-                let col = self.pool.index_to_column(j);
-                self.pool.update_size(col, 1);
+                let col = self.matrix.index_to_column(j);
+                self.matrix.update_size(col, 1);
             }
         }
 
-        self.pool.reattach_horizontal(col);
+        self.matrix.reattach_horizontal(col);
     }
+}
+
+#[test]
+fn smoke() {
+    struct Row(u8);
+
+    impl crate::solve::Row for Row {
+        fn iter(&self) -> impl Iterator<Item = u16> {
+            (0..8).filter(|bit| (self.0 >> bit) & 1 > 0)
+        }
+    }
+
+    let solver = Solver::new(&[
+        Row(0b0110100),
+        Row(0b1001001),
+        Row(0b0100110),
+        Row(0b0001001),
+        Row(0b1000010),
+        Row(0b1011000),
+    ]);
+
+    let mut seen = false;
+    solver.solve(&mut |rows| {
+        rows.sort();
+        assert!(!seen);
+        assert_eq!(rows, &[0, 3, 4]);
+        seen = true;
+        core::ops::ControlFlow::<(), _>::Continue(())
+    });
 }

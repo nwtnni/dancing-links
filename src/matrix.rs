@@ -1,8 +1,9 @@
 use core::cell::Cell;
+use core::fmt::Display;
 use core::iter;
 use core::ops;
+use std::collections::HashSet;
 
-#[derive(Debug)]
 pub(crate) struct Matrix {
     headers: Vec<Header>,
     nodes: Vec<Node>,
@@ -49,8 +50,8 @@ impl Matrix {
             node: Node::new(
                 Row(0),
                 Col(0),
-                Index::dangling(),
-                Index::dangling(),
+                Index::DANGLING,
+                Index::DANGLING,
                 Index::header(column_count),
                 Index::header(0),
             ),
@@ -62,8 +63,8 @@ impl Matrix {
                 node: Node::new(
                     Row(0),
                     Col(i + 1),
-                    Index::dangling(),
-                    Index::dangling(),
+                    Index::DANGLING,
+                    Index::DANGLING,
                     i.checked_sub(1).map(Index::header).unwrap_or(Index::GLOBAL),
                     match i + 1 {
                         j if j == column_count => Index::GLOBAL,
@@ -147,22 +148,61 @@ impl ops::Index<Index> for Matrix {
     }
 }
 
+impl core::fmt::Debug for Matrix {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let cols = self.headers.len() - 1;
+        let rows = self
+            .nodes
+            .iter()
+            .map(|node| node.row.0)
+            .max()
+            .unwrap_or(u32::MAX);
+
+        let set = self
+            .walk_right(Index::GLOBAL)
+            .flat_map(|i| {
+                self.walk_down(i)
+                    .take_while(|index| *index != Index::DANGLING)
+                    .map(move |j| &self[j])
+                    .map(|node| (node.row.0, node.col.0))
+            })
+            .collect::<HashSet<_>>();
+
+        for i in 0..rows {
+            for j in 1..=cols {
+                let char = match set.contains(&(i, j as u16)) {
+                    true => "X",
+                    false => ".",
+                };
+
+                write!(f, "{}", char)?;
+            }
+            writeln!(f)?;
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Index(u32);
 
 impl Index {
     pub(crate) const GLOBAL: Self = Self(0);
+    pub(crate) const DANGLING: Self = Self(u32::MAX);
 
     fn header(col: u16) -> Self {
         Self(1 + col as u32)
     }
 
-    fn dangling() -> Self {
-        Self(u32::MAX)
-    }
-
     pub(crate) fn prev(&self) -> Self {
         Self(self.0 - 1)
+    }
+}
+
+impl Display for Index {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -172,6 +212,18 @@ pub(crate) struct Row(u32);
 impl Row {
     pub(crate) fn new(row: u32) -> Self {
         Self(row)
+    }
+}
+
+impl From<Row> for usize {
+    fn from(value: Row) -> Self {
+        value.0 as Self
+    }
+}
+
+impl Display for Row {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -208,6 +260,18 @@ impl From<Col> for Index {
     }
 }
 
+impl From<Col> for u16 {
+    fn from(col: Col) -> Self {
+        col.0
+    }
+}
+
+impl Display for Col {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 #[derive(Debug)]
 struct Header {
     size: Cell<u32>,
@@ -216,7 +280,7 @@ struct Header {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Node {
-    row: Row,
+    pub(crate) row: Row,
     col: Col,
 
     u: Cell<Index>,
@@ -241,10 +305,10 @@ impl Node {
         Self {
             row,
             col,
-            u: Cell::new(Index(u32::MAX)),
-            d: Cell::new(Index(u32::MAX)),
-            l: Cell::new(Index(u32::MAX)),
-            r: Cell::new(Index(u32::MAX)),
+            u: Cell::new(Index::DANGLING),
+            d: Cell::new(Index::DANGLING),
+            l: Cell::new(Index::DANGLING),
+            r: Cell::new(Index::DANGLING),
         }
     }
 }
