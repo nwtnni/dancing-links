@@ -80,6 +80,10 @@ impl Matrix {
         }
     }
 
+    pub(crate) fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
     pub(crate) fn size(&self, col: Col) -> u32 {
         self.headers[col.0 as usize].size.get()
     }
