@@ -1,9 +1,12 @@
+use std::collections::BTreeSet;
+
 use dancing_links::solve::Row;
 use dancing_links::tile;
 use dancing_links::tile::Point;
+use dancing_links::Tile;
 
-#[derive(Clone, Debug)]
-struct Triomino([Point; 3]);
+#[derive(Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
+struct Triomino(Tile<3>);
 
 macro_rules! triomino {
     ($($rest:tt)*) => {
@@ -11,42 +14,23 @@ macro_rules! triomino {
     };
 }
 
-const TRIOMINOES: [Triomino; 6] = [
+const TRIOMINOES: [Triomino; 2] = [
     triomino! {
         X X .
         X . .
         . . .
     },
     triomino! {
-        X X .
-        . X .
-        . . .
-    },
-    triomino! {
-        X . .
-        X X .
-        . . .
-    },
-    triomino! {
-        . X .
-        X X .
-        . . .
-    },
-    triomino! {
         X . .
         X . .
         X . .
-    },
-    triomino! {
-        X X X
-        . . .
-        . . .
     },
 ];
 
 impl Row for Triomino {
     fn iter(&self) -> impl Iterator<Item = u16> {
         self.0
+            .as_ref()
             .iter()
             // Imposes maximum width of 64 units
             .map(|point| point.i as u16 * 64 + point.j as u16)
@@ -58,14 +42,20 @@ impl Row for Triomino {
 fn solutions(rows: usize, cols: usize) -> usize {
     use dancing_links::solve::Solver;
 
+    let unique = TRIOMINOES
+        .iter()
+        .flat_map(|triomino| triomino.0.transformations())
+        .map(Triomino)
+        .collect::<BTreeSet<_>>();
+
     let mut triominoes = Vec::new();
 
-    for triomino in TRIOMINOES.iter() {
+    for triomino in unique.iter() {
         for row in 0..rows {
             'outer: for col in 0..cols {
                 let mut translated = triomino.clone();
 
-                for (before, after) in triomino.0.iter().zip(&mut translated.0) {
+                for (before, after) in triomino.0.as_ref().iter().zip(translated.0.as_mut()) {
                     let point = Point {
                         i: before.i + row,
                         j: before.j + col,
