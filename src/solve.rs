@@ -75,6 +75,11 @@ impl Solver {
         Self { matrix }
     }
 
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
+        self.matrix.len()
+    }
+
     pub fn solve_count(&self) -> usize {
         let mut solution = Vec::new();
         let mut count = 0;
@@ -87,7 +92,7 @@ impl Solver {
 
     pub fn solve<T, F: FnMut(&mut [usize]) -> ControlFlow<T, ()>>(
         &self,
-        inspect: &mut F,
+        mut inspect: F,
     ) -> Option<T> {
         let mut solution = Vec::new();
         let mut buffer = Vec::new();
@@ -202,7 +207,7 @@ fn smoke() {
     ]);
 
     let mut seen = false;
-    solver.solve(&mut |rows| {
+    solver.solve(|rows| {
         rows.sort();
         assert!(!seen);
         assert_eq!(rows, &[0, 3, 4]);

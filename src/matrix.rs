@@ -90,7 +90,7 @@ impl Matrix {
 
     pub(crate) fn update_size(&self, col: Col, delta: i32) {
         let size = &self.headers[col.0 as usize].size;
-        size.set(size.get().wrapping_add_signed(delta))
+        size.set(size.get().checked_add_signed(delta).unwrap())
     }
 
     pub(crate) fn column(&self, col: u16) -> Col {

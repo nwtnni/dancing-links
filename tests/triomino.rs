@@ -39,7 +39,7 @@ impl Row for Triomino {
 
 /// Return number of ways to tile `rows` by `cols` rectangular
 /// grid using triominoes.
-fn solutions(rows: usize, cols: usize) -> usize {
+fn solutions(rows: u8, cols: u8) -> usize {
     use dancing_links::solve::Solver;
 
     let unique = TRIOMINOES
